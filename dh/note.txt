@@ -1,0 +1,30 @@
+512 bit space
+
+diffie hellman: calc (g^a) (g^b) mod p
+-> powmod g, a, p
+-> mulmod g, g, p
+-> mod g, p -> 2 way
+	a. guarentee p is 512 bit -> at most 1 long subtraction
+	b. otherwise run O(k) with k is bit length
+
+gen q: safe prime (sub for p)
+q is prime & p=(q-1)/2 also prime
+q = 2p+1
+-> tìm p là prime, rồi tìm q là prime
+
+rabin miller, n
+nếu n là số nguyên tố thì 
+	1. a^d % n = 1
+	2. hoặc là a^(2^r * d) % n = n-1 với 0 <= r < s
+nếu với một base a được chọn, làm d fail hết cả 2 case -> n chắc chắn là composite
+
+algo:
+nếu đủ round -> PRIME
+bắt đầu một round, chọn a bất kỳ [2, n-2]
+tách thành: n - 1 = 2^s * d, với d là số lẻ
+tính x = a^d mod n   ---> powmod g, a, p
+nếu x == n-1 || x == 1, qua round mới (thỏa  fermat nhỏ)
+else lập lại s-1 lần:
+	tính x = x^2 mod n
+	nếu x % n == n-1, qua round mới
+fail round -> COMPOSITE
