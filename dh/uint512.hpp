@@ -34,8 +34,17 @@ int compare_uint512(const uint512_t& a, const uint512_t& b) {
 }
 uint512_t add_uint512(const uint512_t& a, const uint512_t& b) {
     uint512_t result;
+    uint64_t carry = 0;
+    
     for(int i = 0; i < 8; i++) {
-        result.v[i] = a.v[i] + b.v[i];
+        uint64_t sum1 = a.v[i] + carry;
+        uint64_t carry1 = (sum1 < a.v[i]) ? 1 : 0;
+        
+        uint64_t sum2 = sum1 + b.v[i];
+        uint64_t carry2 = (sum2 < sum1) ? 1 : 0;
+        
+        result.v[i] = sum2;
+        carry = carry1 + carry2;
     }
     return result;
 }
@@ -47,6 +56,32 @@ uint512_t sub_uint512(const uint512_t& a, const uint512_t& b) {
         result.v[i] = a.v[i] - b.v[i];
     }
     return result;
+}
+
+uint512_t mul64_uint512(const uint512_t& a, uint64_t b) {
+    uint512_t result;
+    uint64_t carry = 0;
+
+    for(int i = 0; i < 8; i++) {
+        __uint128_t product = (__uint128_t)a.v[i] * b + carry;
+        result.v[i] = (uint64_t)product;
+        carry = (uint64_t)(product >> 64);
+    }
+    return result;
+}
+
+uint512_t div64_uint512(const uint512_t& a, uint64_t b, uint64_t& rem) {
+    uint512_t quotient;
+    __uint128_t current = 0;
+
+    for (int i = 7; i >= 0; --i) {
+        current = (current << 64) | a.v[i];
+        quotient.v[i] = static_cast<uint64_t>(current / b);
+        current %= b;
+    }
+
+    rem = static_cast<uint64_t>(current);
+    return quotient;
 }
 
 bool getbit_uint512(const uint512_t& a, size_t index) {
@@ -78,9 +113,14 @@ uint512_t shift_left_uint512(const uint512_t& a, size_t shift) {
     int bit_shift = shift % 64;
 
     for(int i = 7; i >= 0; i--) {
-        result.v[i] = a.v[i - word_shift] << bit_shift;
-        if (bit_shift > 0 && i - word_shift - 1 >= 0) {
-            result.v[i] |= a.v[i - word_shift - 1] >> (64 - bit_shift);
+        int src_index = i - word_shift;
+        if(src_index >= 0) {
+            result.v[i] = a.v[src_index] << bit_shift;
+            if (bit_shift > 0 && src_index - 1 >= 0) {
+                result.v[i] |= a.v[src_index - 1] >> (64 - bit_shift);
+            }
+        } else {
+            result.v[i] = 0;
         }
     }
     return result;
@@ -103,7 +143,7 @@ uint512_t shift_right_uint512(const uint512_t& a, size_t shift) {
 // Single bit shifting modular, work in all case
 uint512_t mod_uint512(const uint512_t& a, const uint512_t& m) {
     uint512_t rem;
-    for(int i=0; i < 511; i++) {
+    for(int i=511; i >= 0; i--) {
         rem = shift_left_uint512(rem, 1);
         uint512_t xi = getbit512_uint512(a, i); 
         rem = add_uint512(rem, xi);
@@ -153,12 +193,33 @@ void print_uint512(const uint512_t& a) {
 }
 
 std::string to_string_uint512(const uint512_t& a) {
-    char buffer[130];
+    char buffer[135];
     memset(buffer, 0, sizeof(buffer));
+    sprintf(buffer, "0x");
     for(int i = 7, c = 0; i >= 0; i--, c+=16) {
         sprintf(buffer+c, "%016llx", a.v[i]);
     }
     return std::string(buffer);
+}
+
+std::string to_string_decimal_uint512(uint512_t val) {
+    if (compare_uint512(val, uint512_t(0)) == 0) {
+        return "0";
+    }
+
+    std::string result;
+    while (compare_uint512(val, uint512_t(0)) != 0) {
+        uint64_t remainder;
+        val = div64_uint512(val, 10, remainder);
+        result += char('0' + remainder);
+    }
+
+    std::string result2;
+    result.reserve(result.size());
+    for (auto it = result.rbegin(); it != result.rend(); ++it) {
+        result2 += *it;
+    }
+    return result2;
 }
 
 // Parses a uint512_t from a hexadecimal or decimal string (base 16 or base 10)
@@ -274,8 +335,23 @@ uint512_t operator-(const uint512_t& a, const uint512_t& b) {
     return sub_uint512(a, b);
 }
 
+uint512_t operator*(const uint512_t& a, uint64_t b) {
+    return mul64_uint512(a, b);
+}
+
 uint512_t operator%(const uint512_t& a, const uint512_t& b) {
     return mod_uint512(a, b);
+}
+
+uint512_t operator/(const uint512_t& a, uint64_t b) {
+    uint64_t rem;
+    return div64_uint512(a, b, rem);
+}
+
+uint64_t operator%(const uint512_t& a, uint64_t b) {
+    uint64_t rem;
+    div64_uint512(a, b, rem);
+    return rem;
 }
 
 uint512_t operator<<(const uint512_t& a, size_t shift) {

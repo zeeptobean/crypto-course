@@ -4,8 +4,12 @@
 #include <iostream>
 
 uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint512_t& mod) {
+    // std::cout << "Calculating modular exponentiation..." << std::endl;
+    // std::cout << "Base: " << to_string_decimal_uint512(base) << std::endl;
+    // std::cout << "Exponent: " << to_string_decimal_uint512(exponent) << std::endl;
+    // std::cout << "Modulus: " << to_string_decimal_uint512(mod) << std::endl;
     uint512_t result = 1;
-    base = mod_uint512(base, mod);
+    base = base % mod;
     for(int i = 0; i < 512; i++) {
         if(getbit_uint512(exponent, i)) {
             result = mul_mod_uint512(result, base, mod);
@@ -43,20 +47,73 @@ uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
     return result;
 }
 
-bool rabin_miller_test(const uint512_t& n) {
+bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
+    // filter small primes
+    const uint16_t small_primes[12] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
+    for(size_t i = 0; i < 12; i++) {
+        if(n == small_primes[i]) return true;
+        uint64_t rem;
+        div64_uint512(n, small_primes[i], rem);
+        if(rem == 0) return false;
+    }
+
     uint512_t m = n - 1;
-    
+    uint512_t d = m;
+    size_t s = 0;
+    while(getbit_uint512(d, 0) == 0) {
+        d = shift_right_uint512(d, 1);
+        s++;
+    }
+
+    // const uint512_t basetest[5] = {2, 3, 4, 5, 6};
+    // k = 5;
+
+    for(size_t i = 0; i < k; i++) {
+        // printf("Testing with iteration %zu\n", i);
+        // uint512_t a = basetest[i];
+        uint512_t a = generate512_uint512(prng);
+        a = mod_uint512(a, n - 4) + 2; // random in [2, n-2]
+        // case 1: little fermat
+        uint512_t x = modular_exponentiation(a, d, n);
+        if(x == 1 || x == m) continue;
+
+        // case 2: test
+        bool composite = true;
+        for(size_t j = 0; j < s; j++) {
+            x = mul_mod_uint512(x, x, n);
+            if(x == m) {
+                composite = false;
+                break;
+            }
+        }
+        if(composite) {
+            return false;
+        }
+    }
+    return true;
 }
 
-uint512_t generate_safe_prime(PRNG& prng, size_t bit_length) {
+uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     while(true) {
-        
+        uint512_t q = generate_odd_uint512(prng, bit_length);
+        std::cout << "Generating q: " << to_string_decimal_uint512(q) << std::endl; 
+        if(!rabin_miller_test(prng, q)) {
+            continue;
+        }
+        uint512_t p = (q - 1) >> 1;
+        std::cout << "Generating p: " << to_string_decimal_uint512(p) << std::endl; 
+        if(!rabin_miller_test(prng, p)) {
+            continue;
+        }
+        return q;
     }
 }
 
 int main() {
     PRNG prng;
-    uint512_t num = generate_odd_uint512(prng, 512);
-    std::cout << "Random 512-bit odd number: " << num << std::endl;
+    uint512_t num = generate_safe_prime(prng, 512);
+    std::cout << "A prime number: " << num << std::endl;
+    std::cout << "In decimal: " << to_string_decimal_uint512(num) << std::endl;
+    return 0;
 }
