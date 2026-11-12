@@ -4,10 +4,6 @@
 #include "uint512.hpp"
 
 uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint512_t& mod) {
-    // std::cout << "Calculating modular exponentiation..." << std::endl;
-    // std::cout << "Base: " << to_string_decimal_uint512(base) << std::endl;
-    // std::cout << "Exponent: " << to_string_decimal_uint512(exponent) << std::endl;
-    // std::cout << "Modulus: " << to_string_decimal_uint512(mod) << std::endl;
     uint512_t result = 1;
     base = base % mod;
     for(int i = 0; i < 512; i++) {
@@ -80,7 +76,7 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
     }
 
     for(size_t i = 0; i < k; i++) {
-        uint512_t a = generate256_uint512(prng);
+        uint512_t a = generate512_uint512(prng);
         a = mod_uint512(a, n - 4) + 2; // random in [2, n-2]
         // case 1: little fermat
         uint512_t x = modular_exponentiation(a, d, n);
@@ -106,22 +102,22 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     while(true) {
         uint512_t q = generate_odd_uint512(prng, bit_length);
-        std::cout << "Generating q: " << to_string_decimal_uint512(q) << std::endl; 
+        std::cout << "Generating q: " << q << std::endl; 
         if(!rabin_miller_test(prng, q)) {
             continue;
         }
-        // uint512_t p = (q - 1) >> 1;
-        // std::cout << "Generating p: " << to_string_decimal_uint512(p) << std::endl; 
-        // if(!rabin_miller_test(prng, p)) {
-        //     continue;
-        // }
+        uint512_t p = (q - 1) >> 1;
+        std::cout << "Generating p: " << p << std::endl; 
+        if(!rabin_miller_test(prng, p)) {
+            continue;
+        }
         return q;
     }
 }
 
 int main() {
     PRNG prng(777);
-    uint512_t num = generate_safe_prime(prng, 256);
+    uint512_t num = generate_safe_prime(prng, 512);
     std::cout << "A prime number: " << num << std::endl;
     std::cout << "In decimal: " << to_string_decimal_uint512(num) << std::endl;
     return 0;

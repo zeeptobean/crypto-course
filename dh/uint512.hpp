@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <string>
 
+using uint128_t = unsigned __int128;
+
 struct uint512_t {
     uint64_t v[8]{0};
 
@@ -150,7 +152,7 @@ uint512_t shift_right_uint512(const uint512_t& a, size_t shift) {
 }
 
 // Single bit shifting modular, work in all case
-uint512_t mod_uint512(const uint512_t& a, const uint512_t& m) {
+uint512_t mod_old_uint512(const uint512_t& a, const uint512_t& m) {
     assert(compare_uint512(m, uint512_t(0)) != 0 && "modulus cannot be zero");
     uint512_t rem;
     for(int i=511; i >= 0; i--) {
@@ -172,6 +174,78 @@ uint512_t mod512_uint512(const uint512_t& a, const uint512_t& m) {
     } else {
         return a;
     }
+}
+
+static inline int used_limbs(const uint64_t* x, int n) {
+    while (n > 0 && x[n-1] == 0) --n;
+    return n;
+}
+
+uint512_t mod_uint512(const uint512_t& a, const uint512_t& m) {
+    int n  = used_limbs(m.v, 8);
+    assert(n > 0 && "modulus cannot be zero");
+    int la = used_limbs(a.v, 8);
+    if (la < n) return a;                       // a < m (limb-wise)
+
+    uint512_t r{};
+    if (n == 1) {                               // single-limb modulus
+        uint64_t d = m.v[0], rem = 0;
+        for (int i = la - 1; i >= 0; --i)
+            rem = (uint64_t)((((uint128_t)rem << 64) | a.v[i]) % d);
+        r.v[0] = rem;
+        return r;
+    }
+
+    // Normalize so top bit of divisor is set
+    int s = __builtin_clzll(m.v[n-1]);
+    uint64_t v[8], u[9];
+    for (int i = n - 1; i > 0; --i)
+        v[i] = (m.v[i] << s) | (s ? m.v[i-1] >> (64 - s) : 0);
+    v[0] = m.v[0] << s;
+    u[la] = s ? a.v[la-1] >> (64 - s) : 0;
+    for (int i = la - 1; i > 0; --i)
+        u[i] = (a.v[i] << s) | (s ? a.v[i-1] >> (64 - s) : 0);
+    u[0] = a.v[0] << s;
+
+    for (int j = la - n; j >= 0; --j) {
+        uint128_t num  = ((uint128_t)u[j+n] << 64) | u[j+n-1];
+        uint128_t qhat = num / v[n-1];
+        uint128_t rhat = num % v[n-1];
+        while ((qhat >> 64) ||
+               (uint128_t)(uint64_t)qhat * v[n-2] > ((rhat << 64) | u[j+n-2])) {
+            --qhat;
+            rhat += v[n-1];
+            if (rhat >> 64) break;
+        }
+
+        // u[j..j+n] -= qhat * v
+        uint64_t borrow = 0, carry = 0;
+        for (int i = 0; i < n; ++i) {
+            uint128_t p = (uint128_t)(uint64_t)qhat * v[i] + carry;
+            carry = (uint64_t)(p >> 64);
+            uint64_t sub = (uint64_t)p;
+            uint64_t t  = u[i+j] - sub;     uint64_t b1 = u[i+j] < sub;
+            uint64_t t2 = t - borrow;       uint64_t b2 = t < borrow;
+            u[i+j] = t2;               borrow = b1 | b2;
+        }
+        uint64_t t  = u[j+n] - carry;       uint64_t b1 = u[j+n] < carry;
+        uint64_t t2 = t - borrow;           uint64_t b2 = t < borrow;
+        u[j+n] = t2;
+
+        if (b1 | b2) {                          // qhat was 1 too large: add back
+            uint64_t c = 0;
+            for (int i = 0; i < n; ++i) {
+                uint128_t sum = (uint128_t)u[i+j] + v[i] + c;
+                u[i+j] = (uint64_t)sum;  c = (uint64_t)(sum >> 64);
+            }
+            u[j+n] += c;
+        }
+    }
+
+    // Denormalize remainder (lives in u[0..n-1])
+    for (int i = 0; i < n; ++i)
+        r.v[i] = (u[i] >> s) | ((s && i + 1 < n) ? u[i+1] << (64 - s) : 0);
+    return r;
 }
 
 uint512_t add_mod_uint512(uint512_t a, uint512_t b, const uint512_t& mod) {

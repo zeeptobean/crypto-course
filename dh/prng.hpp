@@ -24,6 +24,9 @@ public:
         seed = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
         rng.seed(seed);
     }
+    uint64_t get_seed() const {
+        return seed;
+    }
     uint64_t next_u64() {
         return static_cast<uint64_t>(rng());
     }
