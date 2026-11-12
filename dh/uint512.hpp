@@ -25,6 +25,9 @@ struct uint512_t {
     }
 };
 
+std::string to_string_uint512(const uint512_t& a);
+std::string to_string_decimal_uint512(uint512_t val);
+
 int compare_uint512(const uint512_t& a, const uint512_t& b) {
     for(int i = 7; i >= 0; i--) {
         if (a.v[i] < b.v[i]) return -1;
@@ -52,8 +55,14 @@ uint512_t add_uint512(const uint512_t& a, const uint512_t& b) {
 uint512_t sub_uint512(const uint512_t& a, const uint512_t& b) {
     assert(compare_uint512(a, b) >= 0 && "a must be greater than or equal to b for subtraction");
     uint512_t result;
-    for(int i = 0; i < 8; ++i) {
-        result.v[i] = a.v[i] - b.v[i];
+    uint64_t borrow = 0;
+    for (int i = 0; i < 8; i++) {
+        uint64_t d  = a.v[i] - b.v[i];
+        uint64_t b1 = (a.v[i] < b.v[i]) ? 1 : 0;
+        uint64_t d2 = d - borrow;
+        uint64_t b2 = (d < borrow) ? 1 : 0;
+        result.v[i] = d2;
+        borrow = b1 | b2;
     }
     return result;
 }
@@ -142,6 +151,7 @@ uint512_t shift_right_uint512(const uint512_t& a, size_t shift) {
 
 // Single bit shifting modular, work in all case
 uint512_t mod_uint512(const uint512_t& a, const uint512_t& m) {
+    assert(compare_uint512(m, uint512_t(0)) != 0 && "modulus cannot be zero");
     uint512_t rem;
     for(int i=511; i >= 0; i--) {
         rem = shift_left_uint512(rem, 1);
@@ -165,10 +175,13 @@ uint512_t mod512_uint512(const uint512_t& a, const uint512_t& m) {
 }
 
 uint512_t add_mod_uint512(uint512_t a, uint512_t b, const uint512_t& mod) {
+    // std::cout << "addmod: Before: a = " << to_string_decimal_uint512(a) << ", b = " << to_string_decimal_uint512(b) << std::endl;
+    // std::cout << "addmod: After: a = " << to_string_decimal_uint512(a) << ", b = " << to_string_decimal_uint512(b) << std::endl;
     a = mod_uint512(a, mod);
     b = mod_uint512(b, mod);
-    if(compare_uint512(a, sub_uint512(mod, b)) >= 0) {
-        return sub_uint512(a, sub_uint512(mod, b));
+    uint512_t sub_b = sub_uint512(mod, b);
+    if(compare_uint512(a, sub_b) >= 0) {
+        return sub_uint512(a, sub_b);
     } else {
         return add_uint512(a, b);
     }
@@ -196,7 +209,7 @@ std::string to_string_uint512(const uint512_t& a) {
     char buffer[135];
     memset(buffer, 0, sizeof(buffer));
     sprintf(buffer, "0x");
-    for(int i = 7, c = 0; i >= 0; i--, c+=16) {
+    for(int i = 7, c = 2; i >= 0; i--, c+=16) {
         sprintf(buffer+c, "%016llx", a.v[i]);
     }
     return std::string(buffer);

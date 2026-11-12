@@ -1,7 +1,7 @@
+#include <iostream>
+#include <cassert>
 #include "prng.hpp"
 #include "uint512.hpp"
-#include <cassert>
-#include <iostream>
 
 uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint512_t& mod) {
     // std::cout << "Calculating modular exponentiation..." << std::endl;
@@ -27,22 +27,36 @@ uint512_t generate512_uint512(PRNG& prng) {
     return result;
 }
 
+uint512_t generate256_uint512(PRNG& prng) {
+    uint512_t result;
+    for(int i = 0; i < 4; i++) {
+        result.v[i] = prng.next_u64();
+    }
+    return result;
+}
+
+uint512_t generate128_uint512(PRNG& prng) {
+    uint512_t result;
+    for(int i = 0; i < 2; i++) {
+        result.v[i] = prng.next_u64();
+    }
+    return result;
+}
+
 uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     uint512_t result;
     for(int i = 0; i < 8; i++) {
         result.v[i] = prng.next_u64();
     }
-    result.v[0] |= 1;   // odd
-    // mask the bits above bit_length
     size_t word_index = (bit_length-1) / 64;
     size_t bit_index = (bit_length-1) % 64;
     for(size_t i = word_index + 1; i < 8; i++) {
         result.v[i] = 0;
     }
-    if(bit_length < 512) {
-        result.v[word_index] &= (1ULL << (bit_index + 1)) - 1;
-    } 
+    if (bit_index < 63) result.v[word_index] &= (1ULL << (bit_index + 1)) - 1;
+    result.v[word_index] |= (1ULL << bit_index);    // force exact bit length
+    result.v[0] |= 1;                               // odd
 
     return result;
 }
@@ -65,13 +79,8 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
         s++;
     }
 
-    // const uint512_t basetest[5] = {2, 3, 4, 5, 6};
-    // k = 5;
-
     for(size_t i = 0; i < k; i++) {
-        // printf("Testing with iteration %zu\n", i);
-        // uint512_t a = basetest[i];
-        uint512_t a = generate512_uint512(prng);
+        uint512_t a = generate256_uint512(prng);
         a = mod_uint512(a, n - 4) + 2; // random in [2, n-2]
         // case 1: little fermat
         uint512_t x = modular_exponentiation(a, d, n);
@@ -101,18 +110,18 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
         if(!rabin_miller_test(prng, q)) {
             continue;
         }
-        uint512_t p = (q - 1) >> 1;
-        std::cout << "Generating p: " << to_string_decimal_uint512(p) << std::endl; 
-        if(!rabin_miller_test(prng, p)) {
-            continue;
-        }
+        // uint512_t p = (q - 1) >> 1;
+        // std::cout << "Generating p: " << to_string_decimal_uint512(p) << std::endl; 
+        // if(!rabin_miller_test(prng, p)) {
+        //     continue;
+        // }
         return q;
     }
 }
 
 int main() {
-    PRNG prng;
-    uint512_t num = generate_safe_prime(prng, 512);
+    PRNG prng(777);
+    uint512_t num = generate_safe_prime(prng, 256);
     std::cout << "A prime number: " << num << std::endl;
     std::cout << "In decimal: " << to_string_decimal_uint512(num) << std::endl;
     return 0;
