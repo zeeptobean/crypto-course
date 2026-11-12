@@ -3,16 +3,84 @@
 #include "prng.hpp"
 #include "uint512.hpp"
 
-uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint512_t& mod) {
-    uint512_t result = 1;
-    base = base % mod;
-    for(int i = 0; i < 512; i++) {
-        if(getbit_uint512(exponent, i)) {
-            result = mul_mod_uint512(result, base, mod);
-        }
-        base = mul_mod_uint512(base, base, mod);
+struct Mont {
+    uint512_t m, one;   // one = R mod m  (Montgomery form of 1)
+    uint512_t r2;       // R^2 mod m, R = 2^512
+    uint64_t  ninv;     // -m^{-1} mod 2^64
+};
+
+static inline uint512_t sub_wrap(const uint512_t& a, const uint512_t& b) {
+    uint512_t r; uint64_t br = 0;
+    for (int i = 0; i < 8; i++) {
+        uint64_t d = a.v[i] - b.v[i], b1 = a.v[i] < b.v[i];
+        uint64_t d2 = d - br,         b2 = d < br;
+        r.v[i] = d2; br = b1 | b2;
     }
-    return result;
+    return r;
+}
+
+static inline Mont mont_init(const uint512_t& m) {
+    assert((m.v[0] & 1) && "Montgomery needs odd modulus");
+    Mont M; M.m = m;
+    uint64_t x = m.v[0];                       // Newton: 3 -> 6 -> 12 -> 24 -> 48 -> 96 bits
+    for (int i = 0; i < 5; i++) x *= 2 - m.v[0] * x;
+    M.ninv = -x;
+
+    uint512_t zero;
+    M.one = mod_uint512(sub_wrap(zero, m), m); // 2^512 - m  ≡  R (mod m)
+    uint512_t t = M.one;                       // double 512 times -> R * 2^512 = R^2
+    for (int i = 0; i < 512; i++) {
+        uint64_t top = t.v[7] >> 63;
+        t = shift_left_uint512(t, 1);
+        if (top || compare_uint512(t, m) >= 0) t = sub_wrap(t, m);
+    }
+    M.r2 = t;
+    return M;
+}
+
+static inline uint512_t mont_mul(const uint512_t& a, const uint512_t& b, const Mont& M) {
+    uint64_t t[10] = {0};
+    for (int i = 0; i < 8; i++) {
+        uint64_t c = 0;
+        for (int j = 0; j < 8; j++) {
+            uint128_t p = (uint128_t)a.v[j] * b.v[i] + t[j] + c;
+            t[j] = (uint64_t)p; c = (uint64_t)(p >> 64);
+        }
+        uint128_t s = (uint128_t)t[8] + c;
+        t[8] = (uint64_t)s; t[9] = (uint64_t)(s >> 64);
+
+        uint64_t q = t[0] * M.ninv;
+        uint128_t p = (uint128_t)q * M.m.v[0] + t[0];
+        c = (uint64_t)(p >> 64);
+        for (int j = 1; j < 8; j++) {
+            p = (uint128_t)q * M.m.v[j] + t[j] + c;
+            t[j-1] = (uint64_t)p; c = (uint64_t)(p >> 64);
+        }
+        s = (uint128_t)t[8] + c;
+        t[7] = (uint64_t)s; t[8] = t[9] + (uint64_t)(s >> 64);
+    }
+    uint512_t r;
+    for (int i = 0; i < 8; i++) r.v[i] = t[i];
+    if (t[8] || compare_uint512(r, M.m) >= 0) r = sub_wrap(r, M.m);
+    return r;
+}
+
+uint512_t modular_exponentiation(uint512_t base, const uint512_t& exp, const uint512_t& mod) {
+    Mont M = mont_init(mod);                   // cache this if mod is reused
+    base = mod_uint512(base, mod);
+
+    uint512_t tbl[16];                         // tbl[k] = base^k in Montgomery form
+    tbl[0] = M.one;
+    tbl[1] = mont_mul(base, M.r2, M);
+    for (int k = 2; k < 16; k++) tbl[k] = mont_mul(tbl[k-1], tbl[1], M);
+
+    uint512_t acc = M.one;
+    for (int w = 127; w >= 0; w--) {           // 128 nibbles, top first
+        for (int s = 0; s < 4; s++) acc = mont_mul(acc, acc, M);
+        unsigned nib = (exp.v[w / 16] >> ((w % 16) * 4)) & 0xF;
+        if (nib) acc = mont_mul(acc, tbl[nib], M);
+    }
+    return mont_mul(acc, uint512_t(1), M);     // leave Montgomery form
 }
 
 uint512_t generate512_uint512(PRNG& prng) {
@@ -102,12 +170,12 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     while(true) {
         uint512_t q = generate_odd_uint512(prng, bit_length);
-        std::cout << "Generating q: " << q << std::endl; 
         if(!rabin_miller_test(prng, q)) {
             continue;
         }
         uint512_t p = (q - 1) >> 1;
-        std::cout << "Generating p: " << p << std::endl; 
+        std::cout << "Checked q: " << q << std::endl; 
+        std::cout << "Checking p: " << p << std::endl; 
         if(!rabin_miller_test(prng, p)) {
             continue;
         }
