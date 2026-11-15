@@ -15,31 +15,7 @@ uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint5
     return result;
 }
 
-uint512_t generate512_uint512(PRNG& prng) {
-    uint512_t result;
-    for(int i = 0; i < 8; i++) {
-        result.v[i] = prng.next_u64();
-    }
-    return result;
-}
-
-uint512_t generate256_uint512(PRNG& prng) {
-    uint512_t result;
-    for(int i = 0; i < 4; i++) {
-        result.v[i] = prng.next_u64();
-    }
-    return result;
-}
-
-uint512_t generate128_uint512(PRNG& prng) {
-    uint512_t result;
-    for(int i = 0; i < 2; i++) {
-        result.v[i] = prng.next_u64();
-    }
-    return result;
-}
-
-uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
+uint512_t generate_uint512(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     uint512_t result;
     for(int i = 0; i < 8; i++) {
@@ -52,15 +28,26 @@ uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
     }
     if (bit_index < 63) result.v[word_index] &= (1ULL << (bit_index + 1)) - 1;
     result.v[word_index] |= (1ULL << bit_index);    // force exact bit length
-    result.v[0] |= 1;                               // odd
-
     return result;
+}
+
+uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
+    uint512_t result = generate_uint512(prng, bit_length);
+    result.v[0] |= 1;                               // odd
+    return result;
+}
+
+uint512_t generate_private_key(PRNG& prng, const uint512_t& p) {
+    assert(p.v[0] > 5 && "p must be at least 5");
+    uint512_t a = generate_uint512(prng);
+    a = mod_uint512(a, p - 4) + 2; // random in [2, p-2]
+    return a;
 }
 
 bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
     // filter small primes
-    const uint16_t small_primes[12] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
-    for(size_t i = 0; i < 12; i++) {
+    const uint16_t small_primes[20] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71};
+    for(size_t i = 0; i < 20; i++) {
         if(n == small_primes[i]) return true;
         uint64_t rem;
         div64_uint512(n, small_primes[i], rem);
@@ -74,10 +61,8 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
         d = shift_right_uint512(d, 1);
         s++;
     }
-
     for(size_t i = 0; i < k; i++) {
-        uint512_t a = generate512_uint512(prng);
-        a = mod_uint512(a, n - 4) + 2; // random in [2, n-2]
+        uint512_t a = generate_private_key(prng, n);
         // case 1: little fermat
         uint512_t x = modular_exponentiation(a, d, n);
         if(x == 1 || x == m) continue;
@@ -102,12 +87,12 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     while(true) {
         uint512_t q = generate_odd_uint512(prng, bit_length);
-        std::cout << "Generating q: " << q << std::endl; 
         if(!rabin_miller_test(prng, q)) {
             continue;
         }
         uint512_t p = (q - 1) >> 1;
-        std::cout << "Generating p: " << p << std::endl; 
+        // std::cout << "Checked q: " << q << std::endl; 
+        // std::cout << "Generating p: " << p << std::endl; 
         if(!rabin_miller_test(prng, p)) {
             continue;
         }
@@ -117,8 +102,26 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
 
 int main() {
     PRNG prng(777);
-    uint512_t num = generate_safe_prime(prng, 512);
-    std::cout << "A prime number: " << num << std::endl;
-    std::cout << "In decimal: " << to_string_decimal_uint512(num) << std::endl;
+
+    size_t bit_length = 512;
+
+    // Generate a safe prime number might take too long, using a pre-generated number
+    uint512_t p = generate_safe_prime(prng, bit_length);
+    // uint512_t p = from_string_uint512("0xbe94ec64421e7b536b7a8c7903fe1f30e0c3898579df27b6a0cb52d6f036bc1342433ebcc12a1af11655c39827494b838a29ca8d33e6e1544203f7f58fb34497");
+    uint512_t g = 2;
+
+    uint512_t a = generate_private_key(prng, p);
+    uint512_t b = generate_private_key(prng, p);
+
+    uint512_t A = modular_exponentiation(g, a, p);
+    uint512_t B = modular_exponentiation(g, b, p);
+
+    uint512_t shared_secret_a = modular_exponentiation(B, a, p);
+    uint512_t shared_secret_b = modular_exponentiation(A, b, p);
+    
+    std::cout << "Shared secret A: " << shared_secret_a << std::endl;
+    std::cout << "Shared secret B: " << shared_secret_b << std::endl;
+    std::cout << "Is equal? " << (shared_secret_a == shared_secret_b ? "Yes" : "No") << std::endl;
+
     return 0;
 }
