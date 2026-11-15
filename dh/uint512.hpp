@@ -309,103 +309,92 @@ std::string to_string_decimal_uint512(uint512_t val) {
     return result2;
 }
 
-// Parses a uint512_t from a hexadecimal or decimal string (base 16 or base 10)
+// Parses a uint512_t from a binary, hexadecimal or decimal string
 uint512_t from_string_uint512(const std::string& s) {
     uint512_t result;
+    int base = 2;
     size_t start = 0;
-    int base = 10;
 
-    // Check for "0x" or "0X" prefix for hex
-    if (s.length() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+    if(s.length() == 1 && s[0] == '0') {
+        return result;
+    } else if(s.length() > 2 && (s[0] == '0' && (s[1] == 'b' || s[1] == 'B'))) {
+        //explicit binary
+        base = 2;
+        start = 2;
+        for(size_t i = 2; i < s.length(); ++i) {
+            char c = s[i];
+            if(c != '0' && c != '1') {
+                throw std::invalid_argument("Invalid character in input string");
+            }
+        }
+    } else if(s.length() > 2 && (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))) {
+        //explicit hex
         base = 16;
         start = 2;
-    } else if (s.length() == 1 && s[0] == '0') {
-        return result;
+        for(size_t i = 2; i < s.length(); ++i) {
+            char c = s[i];
+            if(!isxdigit(c)) {
+                throw std::invalid_argument("Invalid character in input string");
+            }
+        }
     } else {
-        // Try to see if it contains hex characters or if it's purely decimal. 
-        // Usually, if it starts with 0x it's hex, otherwise support standard hex or dec.
-        // Let's support base 16 if it has any a-f/A-F or if requested, but standard is checking prefix or parsing char by char.
-        // A robust way: check if all characters are valid hex or decimal. If we want base 2 or base 16/10:
-        // The user asked "write from string function for this base 2 512bit bigint" -> wait, "base 2 512bit bigint" might mean base 16 (hex) string representation like `to_string_uint512`, or literal binary string ("0110..."), or decimal/hex. Let's support both hex, decimal, and binary strings just in case!
-    }
-
-    // Let's inspect if the string is binary ('0'/'1'), hex, or decimal.
-    // If it contains only '0' and '1' (and optional 0b prefix), treat as binary.
-    bool is_binary = true;
-    size_t bin_start = 0;
-    if (s.length() > 2 && s[0] == '0' && (s[1] == 'b' || s[1] == 'B')) {
-        bin_start = 2;
-    }
-    if (s.length() == bin_start) is_binary = false;
-    for (size_t i = bin_start; i < s.length(); ++i) {
-        if (s[i] != '0' && s[i] != '1') {
-            is_binary = false;
-            break;
+        //auto-detect hex or decimal
+        for(const char& c:s) {
+            unsigned char uc = static_cast<unsigned char>(c);
+            if (!std::isxdigit(uc)) {
+                throw std::invalid_argument("Invalid character in input string");
+            }
+            if (!std::isdigit(uc)) {
+                base = 16;
+            }
         }
     }
 
-    if (is_binary && s.length() > bin_start) {
-        for (size_t i = bin_start; i < s.length(); ++i) {
+    if (start == s.size()) {
+        throw std::invalid_argument("Missing digits after base prefix");
+    }
+    // Skip leading zeros
+    while (start < s.size() && s[start] == '0') {
+        ++start;
+    }
+    if (start == s.size()) {
+        return result;
+    }
+
+    if(base == 2) {
+        if(s.size() - start > 512) {
+            throw std::invalid_argument("Binary number too large");
+        }
+        for(size_t i = start; i < s.length(); i++) {
             result = shift_left_uint512(result, 1);
             if (s[i] == '1') {
                 result.v[0] |= 1ULL;
             }
         }
-        return result;
-    }
-
-    // Check hex
-    if (s.length() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-        start = 2;
-        for (size_t i = start; i < s.length(); ++i) {
+    } else if(base == 10) {
+        for(size_t i = start; i < s.length(); i++) {
+            uint512_t digit = uint64_t(s[i] - '0');
+            // a = a * 10 + d = (a << 3) + (a << 1) + d
+            uint512_t r8 = shift_left_uint512(result, 3);
+            uint512_t r2 = shift_left_uint512(result, 1);
+            result = add_uint512(add_uint512(r8, r2), digit);
+        }
+    } else if(base == 16) {
+        if(s.size() - start > 128) {
+            throw std::invalid_argument("Hexadecimal number too large");
+        }
+        for(size_t i = start; i < s.length(); i++) {
             char c = s[i];
             uint8_t val = 0;
             if (c >= '0' && c <= '9') val = c - '0';
             else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
             else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
-            else break;
+            else throw std::invalid_argument("Invalid character in input string");
             
             result = shift_left_uint512(result, 4);
             result.v[0] |= val;
         }
-        return result;
-    }
-
-    // If it has a-f characters anywhere, treat as hex without prefix
-    bool has_hex_chars = false;
-    for (char c : s) {
-        if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
-            has_hex_chars = true;
-            break;
-        }
-    }
-
-    if (has_hex_chars) {
-        for (char c : s) {
-            uint8_t val = 0;
-            if (c >= '0' && c <= '9') val = c - '0';
-            else if (c >= 'a' && c <= 'f') val = c - 'a' + 10;
-            else if (c >= 'A' && c <= 'F') val = c - 'A' + 10;
-            else continue;
-
-            result = shift_left_uint512(result, 4);
-            result.v[0] |= val;
-        }
-        return result;
-    }
-
-    // Otherwise, treat as decimal string
-    for (char c : s) {
-        if (c >= '0' && c <= '9') {
-            uint512_t digit = uint64_t(c - '0');
-            // result = result * 10 + digit
-            // Since we don't have direct multiplication by 10, we can do result * 8 + result * 2 + digit
-            uint512_t r8 = shift_left_uint512(result, 3);
-            uint512_t r2 = shift_left_uint512(result, 1);
-            result = add_uint512(add_uint512(r8, r2), digit);
-        }
-    }
-
+    } 
     return result;
 }
 
