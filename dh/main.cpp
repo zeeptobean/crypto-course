@@ -44,16 +44,24 @@ uint512_t generate_private_key(PRNG& prng, const uint512_t& p) {
     return a;
 }
 
-bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
-    // filter small primes
-    const uint16_t small_primes[20] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71};
-    for(size_t i = 0; i < 20; i++) {
+bool small_prime_test(const uint512_t& n) {
+    const uint16_t small_primes[100] = {
+        2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
+        73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173,
+        179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251, 257, 263, 269, 271, 277, 281,
+        283, 293, 307, 311, 313, 317, 331, 337, 347, 349, 353, 359, 367, 373, 379, 383, 389, 397, 401, 409,
+        419, 421, 431, 433, 439, 443, 449, 457, 461, 463, 467, 479, 487, 491, 499, 503, 509, 521, 523, 541
+    };
+    for(size_t i = 0; i < 100; i++) {
         if(n == small_primes[i]) return true;
         uint64_t rem;
         div64_uint512(n, small_primes[i], rem);
         if(rem == 0) return false;
     }
+    return true;
+}
 
+bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 20) {
     uint512_t m = n - 1;
     uint512_t d = m;
     size_t s = 0;
@@ -69,7 +77,7 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
 
         // case 2: test
         bool composite = true;
-        for(size_t j = 0; j < s; j++) {
+        for(size_t j = 1; j < s; j++) {
             x = mul_mod_uint512(x, x, n);
             if(x == m) {
                 composite = false;
@@ -86,13 +94,16 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 3) {
 uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     while(true) {
-        uint512_t q = generate_odd_uint512(prng, bit_length);
+        uint512_t p = generate_odd_uint512(prng, bit_length-1);
+        uint512_t q = (p << 1) + 1;
+        if(!small_prime_test(q) || !small_prime_test(p)) {
+            continue;
+        }
         if(!rabin_miller_test(prng, q)) {
             continue;
         }
-        uint512_t p = (q - 1) >> 1;
-        // std::cout << "Checked q: " << q << std::endl; 
-        // std::cout << "Generating p: " << p << std::endl; 
+        std::cout << "Checked q: " << q << std::endl; 
+        std::cout << "Checking p: " << p << std::endl; 
         if(!rabin_miller_test(prng, p)) {
             continue;
         }
