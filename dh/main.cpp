@@ -40,7 +40,7 @@ uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
 uint512_t generate_private_key(PRNG& prng, const uint512_t& p) {
     assert(p.v[0] > 5 && "p must be at least 5");
     uint512_t a = generate_uint512(prng);
-    a = mod_uint512(a, p - 4) + 2; // random in [2, p-2]
+    a = mod_uint512(a, p - 4) + 2; // random in [2, p-3]
     return a;
 }
 
@@ -111,6 +111,27 @@ uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
     }
 }
 
+uint512_t generate_generator(PRNG& prng, const uint512_t& p) {
+    // p must be a safe prime !
+    uint512_t q = (p - 1) >> 1;
+
+    while(true) {
+        // Sample a random candidate g in [2, p - 3]
+        uint512_t g = generate_private_key(prng, p);
+
+        // g ^ ( (p-1)/q ) mod p != 1  ->  g ^ 2 mod p != 1
+        if(modular_exponentiation(g, 2, p) == 1) {
+            continue;
+        }
+        // g ^ ( (p-1)/2 ) mod p != 1  ->  g ^ q mod p != 1
+        if(modular_exponentiation(g, q, p) == 1) {
+            continue;
+        }
+
+        return g;
+    }
+}
+
 int main() {
     PRNG prng(777);
 
@@ -119,7 +140,12 @@ int main() {
     // Generate a safe prime number might take too long, using a pre-generated number
     uint512_t p = generate_safe_prime(prng, bit_length);
     // uint512_t p = from_string_uint512("0xbe94ec64421e7b536b7a8c7903fe1f30e0c3898579df27b6a0cb52d6f036bc1342433ebcc12a1af11655c39827494b838a29ca8d33e6e1544203f7f58fb34497");
-    uint512_t g = 2;
+    
+    uint512_t g = generate_generator(prng, p);
+    // uint512_t g = 2;
+
+    std::cout << "Safe prime p: " << p << std::endl;
+    std::cout << "Generator g: " << g << std::endl;
 
     uint512_t a = generate_private_key(prng, p);
     uint512_t b = generate_private_key(prng, p);
