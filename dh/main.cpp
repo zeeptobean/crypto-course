@@ -92,7 +92,7 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 20) {
 }
 
 uint512_t generate_safe_prime(PRNG& prng, size_t bit_length = 512) {
-    assert(bit_length <= 512);
+    assert(8 <= bit_length <= 512);
     while(true) {
         uint512_t p = generate_odd_uint512(prng, bit_length-1);
         uint512_t q = (p << 1) + 1;
