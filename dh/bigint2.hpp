@@ -1,8 +1,0 @@
-#ifndef CRYPTOCOURSE_BIGINT2_326_HPP
-#define CRYPTOCOURSE_BIGINT2_326_HPP
-
-class BigInt2 {
-
-};
-
-#endif
