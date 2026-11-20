@@ -1,16 +1,17 @@
 #include <iostream>
 #include <cassert>
 #include "prng.hpp"
-#include "uint512.hpp"
+// #include "uint512.hpp"
+#include "ubigint2.hpp"
 
 uint512_t modular_exponentiation(uint512_t base, uint512_t exponent, const uint512_t& mod) {
     uint512_t result = 1;
     base = base % mod;
     for(int i = 0; i < 512; i++) {
-        if(getbit_uint512(exponent, i)) {
-            result = mul_mod_uint512(result, base, mod);
+        if(exponent.get_bit(i)) {
+            result.mul_mod(base, mod);
         }
-        base = mul_mod_uint512(base, base, mod);
+        base.mul_mod(base, mod);
     }
     return result;
 }
@@ -19,32 +20,36 @@ uint512_t generate_uint512(PRNG& prng, size_t bit_length = 512) {
     assert(bit_length <= 512);
     uint512_t result;
     for(int i = 0; i < 8; i++) {
-        result.v[i] = prng.next_u64();
+        result.set_limb(i, prng.next_u64());
     }
     size_t word_index = (bit_length-1) / 64;
     size_t bit_index = (bit_length-1) % 64;
     for(size_t i = word_index + 1; i < 8; i++) {
-        result.v[i] = 0;
+        result.set_limb(i, 0);
     }
-    if (bit_index < 63) result.v[word_index] &= (1ULL << (bit_index + 1)) - 1;
-    result.v[word_index] |= (1ULL << bit_index);    // force exact bit length
+    if(bit_index < 63) {
+        auto tval = result.get_limb(word_index);
+        tval &= (1ULL << (bit_index + 1)) - 1;
+    }
+    auto tval = result.get_limb(word_index);
+    tval |= (1ULL << bit_index);    // force exact bit length
     return result;
 }
 
 uint512_t generate_odd_uint512(PRNG& prng, size_t bit_length = 512) {
     uint512_t result = generate_uint512(prng, bit_length);
-    result.v[0] |= 1;                               // odd
+    result.set_bit(0, true);    // odd
     return result;
 }
 
 uint512_t generate_private_key(PRNG& prng, const uint512_t& p) {
-    assert(p.v[0] > 5 && "p must be at least 5");
+    assert(p > 5 && "p must be at least 5");
     uint512_t a = generate_uint512(prng);
-    a = mod_uint512(a, p - 4) + 2; // random in [2, p-3]
+    a = a % (p - 4) + 2; // random in [2, p-3]
     return a;
 }
 
-bool small_prime_test(const uint512_t& n) {
+bool small_prime_test(uint512_t n) {
     const uint16_t small_primes[100] = {
         2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
         73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173,
@@ -55,7 +60,8 @@ bool small_prime_test(const uint512_t& n) {
     for(size_t i = 0; i < 100; i++) {
         if(n == small_primes[i]) return true;
         uint64_t rem;
-        div64_uint512(n, small_primes[i], rem);
+        uint512_t temp = n;
+        temp.div64(small_primes[i], rem);
         if(rem == 0) return false;
     }
     return true;
@@ -65,8 +71,8 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 20) {
     uint512_t m = n - 1;
     uint512_t d = m;
     size_t s = 0;
-    while(getbit_uint512(d, 0) == 0) {
-        d = shift_right_uint512(d, 1);
+    while(!d.get_bit(0)) {
+        d = d >> 1;
         s++;
     }
     for(size_t i = 0; i < k; i++) {
@@ -78,7 +84,7 @@ bool rabin_miller_test(PRNG& prng, const uint512_t& n, size_t k = 20) {
         // case 2: test
         bool composite = true;
         for(size_t j = 1; j < s; j++) {
-            x = mul_mod_uint512(x, x, n);
+            x.mul_mod(x, n);
             if(x == m) {
                 composite = false;
                 break;
@@ -133,7 +139,7 @@ uint512_t generate_generator(PRNG& prng, const uint512_t& p) {
 }
 
 int main() {
-    PRNG prng(777);
+    PRNG prng(11);
 
     size_t bit_length = 512;
 
